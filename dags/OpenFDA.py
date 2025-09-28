@@ -10,11 +10,11 @@ import pandas as pd
 import requests
 
 # ========== CONFIG ==========
-GCP_PROJECT = "meu-projeto-gcp"        # ex.: "hardy-messenger-229417"
-BQ_DATASET  = "openfda"                # ex.: "crypto" / "openfda"
+GCP_PROJECT = "cecr-enap"        # ex.: "hardy-messenger-229417"
+BQ_DATASET  = "open_fda"                # ex.: "crypto" / "openfda"
 BQ_TABLE    = "sildenafil_weekly"      # ex.: "sildenafil_weekly"
 BQ_LOCATION = "US"                     # "US" ou "EU" — deve bater com o dataset
-GCP_CONN_ID = "google_cloud_default"   # conexão do Airflow com SA que escreve no BQ
+GCP_CONN_ID = "cloud_google"   # conexão do Airflow com SA que escreve no BQ
 # ===========================
 
 def _generate_query_url(year: int, month: int) -> str:
@@ -113,3 +113,4 @@ def openfda_sildenafil_to_bq_monthly():
     load_to_bigquery(data)
 
 dag = openfda_sildenafil_to_bq_monthly()
+
