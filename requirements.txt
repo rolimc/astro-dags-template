@@ -1,9 +1,11 @@
 apache-airflow==3.0.0
 apache-airflow-providers-google==18.0.0
-google-cloud-bigquery==3.14.0
-pandas==2.1.0
-httpx==0.25.0
-pendulum==2.5.1
-bigframes==0.7.0  # opcional, apenas se for usar BigQuery DataFrame via bigframes
+google-cloud-bigquery==3.12.0
+pandas==2.0.3
+httpx==0.24.1
+pendulum==2.4.0
+# bigframes é opcional
+bigframes==0.7.0
+
 
 
