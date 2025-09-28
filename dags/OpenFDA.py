@@ -53,19 +53,28 @@ class PandasDataFrameXComValue:
 def openfda_to_bq():
     @task
     def build_query_url() -> Dict[str, str]:
-        """Monta URL da API e retorna também datas início/fim do mês (YYYY-MM-DD)."""
+        """
+        Constrói a URL da OpenFDA para o mês anterior, robusta para runs manuais e agendados.
+        """
         ctx = get_current_context()
-        start = ctx["data_interval_start"]  # primeiro dia do mês anterior
-        end_exclusive = ctx["data_interval_end"]  # primeiro dia do mês atual (exclusivo)
-        end_inclusive = end_exclusive.subtract(days=1)
-
+    
+        # âncora: um dia antes de data_interval_end; se não existir (caso extremo),
+        # usa agora em UTC
+        end_exclusive = ctx.get("data_interval_end") or pendulum.now("UTC")
+        month_end = end_exclusive.subtract(days=1)                 # último dia do mês anterior
+        month_start = month_end.start_of("month")                  # primeiro dia do mês anterior
+    
+        # segurança extra: garante ordem correta
+        if month_start > month_end:
+            month_start, month_end = month_end, month_start
+    
         ymd = "%Y%m%d"
         ymd_dash = "%Y-%m-%d"
-        start_str = start.strftime(ymd)
-        end_str = end_inclusive.strftime(ymd)
-        start_dash = start.strftime(ymd_dash)
-        end_dash = end_inclusive.strftime(ymd_dash)
-
+        start_str = month_start.strftime(ymd)
+        end_str   = month_end.strftime(ymd)
+        start_dash = month_start.strftime(ymd_dash)
+        end_dash   = month_end.strftime(ymd_dash)
+    
         product_q = quote(PRODUCT)
         search = (
             f'patient.drug.medicinalproduct:"{product_q}"+AND+'
