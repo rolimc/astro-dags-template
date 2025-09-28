@@ -12,14 +12,17 @@ import requests
 GCP_PROJECT = "cecr-enap"
 BQ_DATASET  = "open_fda"
 BQ_TABLE    = "sildenafil_weekly"
-BQ_LOCATION = "US"                      # "US" ou "EU" — deve bater com o dataset
-GCP_CONN_ID = "cloud_google"            # verifique se a conexão existe no Airflow
+BQ_LOCATION = "US"            # tem que bater com a região do dataset
+GCP_CONN_ID = "cloud_google"  # nome da conexão no Airflow
 # ===========================
+
+def _end_of_month_day(year: int, month: int) -> int:
+    # forma mais segura com pendulum:
+    return pendulum.datetime(year, month, 1, tz="UTC").end_of('month').day
 
 def _generate_query_url(year: int, month: int) -> str:
     start_date = f"{year}{month:02d}01"
-    last_day = (pendulum.datetime(year, month, 1, tz="UTC")
-                .add(days=31).start_of("month").add(months=1).subtract(days=1).day)
+    last_day = _end_of_month_day(year, month)
     end_date = f"{year}{month:02d}{last_day:02d}"
     return (
         "https://api.fda.gov/drug/event.json"
@@ -43,7 +46,11 @@ def fetch_openfda_weekly() -> dict:
     if not results:
         return {"week_end_date": [], "count": []}
 
-    df = pd.DataFrame(results)  # columns: time (YYYYMMDD), count
+    df = pd.DataFrame(results)  # cols: time (YYYYMMDD), count (int)
+    if df.empty:
+        return {"week_end_date": [], "count": []}
+
+    # para garantir formato válido de data
     df["time"] = pd.to_datetime(df["time"], format="%Y%m%d", utc=True)
 
     weekly = (
@@ -52,7 +59,9 @@ def fetch_openfda_weekly() -> dict:
           .reset_index()
           .rename(columns={"time": "week_end"})
     )
-    weekly["week_end_date"] = weekly["week_end"].dt.date.astype(str)
+
+    # BigQuery DATE aceita string 'YYYY-MM-DD'
+    weekly["week_end_date"] = weekly["week_end"].dt.strftime("%Y-%m-%d")
     weekly = weekly[["week_end_date", "count"]]
 
     return weekly.to_dict(orient="list")
@@ -64,10 +73,15 @@ def load_to_bigquery(data_dict: dict) -> None:
         print("Nada para carregar no BigQuery.")
         return
 
-    # >>> IMPORTS AQUI (para evitar ImportError no parse) <<<
+    # >>> Import dentro do task evita ImportError no parse <<<
     from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 
     df = pd.DataFrame(data_dict)
+    if df.empty:
+        print("Nada para carregar no BigQuery (DataFrame vazio).")
+        return
+
+    # schema explícito ajuda na criação inicial
     schema = [
         {"name": "week_end_date", "type": "DATE"},
         {"name": "count",         "type": "INTEGER"},
@@ -80,7 +94,7 @@ def load_to_bigquery(data_dict: dict) -> None:
     df.to_gbq(
         destination_table=destination_table,
         project_id=GCP_PROJECT,
-        if_exists="append",
+        if_exists="append",       # para backfill idempotente, considere MERGE
         credentials=credentials,
         table_schema=schema,
         location=BQ_LOCATION,
@@ -89,16 +103,12 @@ def load_to_bigquery(data_dict: dict) -> None:
     print(f"Carregadas {len(df)} linhas para {GCP_PROJECT}.{destination_table} ({BQ_LOCATION}).")
 
 @dag(
-    # Use schedule_interval para máxima compatibilidade
+    # usar schedule_interval para máxima compatibilidade entre runtimes
     schedule_interval="@monthly",
     start_date=pendulum.datetime(2020, 11, 1, tz="UTC"),
     catchup=True,
     max_active_tasks=1,
-    default_args={
-        "owner": "airflow",
-        "retries": 2,
-        "retry_delay": timedelta(minutes=5),
-    },
+    default_args={"owner": "airflow", "retries": 2, "retry_delay": timedelta(minutes=5)},
     tags=["openfda", "etl", "bigquery", "pandas-gbq"],
 )
 def openfda_sildenafil_to_bq_monthly():
